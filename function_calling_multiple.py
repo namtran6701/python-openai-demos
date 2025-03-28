@@ -1,8 +1,9 @@
 import os
-
+import json
 import azure.identity
 import openai
 from dotenv import load_dotenv
+import requests
 
 # Setup the OpenAI client to use either Azure, OpenAI.com, or Ollama API
 load_dotenv(override=True)
@@ -32,28 +33,13 @@ else:
     MODEL_NAME = os.environ["OPENAI_MODEL"]
 
 
+def get_weather(latitude, longitude):
+    response = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current=temperature_2m,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m")
+    data = response.json()
+    return data['current']['temperature_2m']
+
+
 tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "lookup_weather",
-            "description": "Lookup the weather for a given city name or zip code.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "city_name": {
-                        "type": "string",
-                        "description": "The city name",
-                    },
-                    "zip_code": {
-                        "type": "string",
-                        "description": "The zip code",
-                    },
-                },
-                "additionalProperties": False,
-            },
-        },
-    },
     {
         "type": "function",
         "function": {
@@ -75,19 +61,38 @@ tools = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "Get current temperature for provided coordinates in celsius.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "latitude": {"type": "number"},
+                    "longitude": {"type": "number"}
+                },
+                "required": ["latitude", "longitude"],
+                "additionalProperties": False
+            },
+            "strict": True
+        }
+    },
 ]
 
 response = client.chat.completions.create(
     model=MODEL_NAME,
     messages=[
         {"role": "system", "content": "You are a tourism chatbot."},
-        {"role": "user", "content": "is it rainy enough in sydney to watch movies and which ones are on?"},
-    ],
+        {"role": "user", "content": "What is the weather in Greensboro, NC 27406"}],
     tools=tools,
     tool_choice="auto",
 )
 
-print(f"Response from {MODEL_NAME} on {API_HOST}: \n")
-for message in response.choices[0].message.tool_calls:
-    print(message.function.name)
-    print(message.function.arguments)
+tool_call = response.choices[0].message.tool_calls[0]
+args = json.loads(tool_call.function.arguments)
+result = get_weather(args['latitude'], args['longitude'])
+
+print(response.choices[0].message.tool_calls)
+
+print(result)
